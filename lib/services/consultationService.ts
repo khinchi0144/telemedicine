@@ -95,6 +95,19 @@ async function loadRoom(
     // probed for existence.
     throw Errors.notFound('That consultation room could not be found.');
   }
+  // Server-side status gate: only CONFIRMED appointments may open video
+  // consultation rooms. CANCELLED, NO_SHOW, and COMPLETED are terminal states
+  // with no room; REQUESTED is the pre-confirmation seed state. This enforces
+  // the same eligibility rule the patient and doctor lobbies use, so a
+  // non-confirmed booking cannot reach the room or its signalling even if it
+  // is still within its registered time window.
+  // Runs after the membership check so non-members still get an indistinguishable
+  // 404 and cannot learn whether a room exists.
+  if (appointment.status !== 'CONFIRMED') {
+    throw Errors.forbidden(
+      'This room is only open shortly before and during the scheduled appointment time.',
+    );
+  }
   // Timing gate (server side): a member may only open the room within the
   // appointment's time window, not merely on the same calendar day. Runs after
   // the membership check so non-members still get an indistinguishable 404 and

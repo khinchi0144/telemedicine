@@ -115,6 +115,44 @@ export class AppointmentRepository {
     })) as AppointmentRecord;
   }
 
+  /**
+   * Atomic slot reservation. Acquires a per-doctor+day advisory lock, re-checks
+   * for an overlap, and inserts inside the SAME transaction. A concurrent
+   * booking for the same doctor+day blocks on the lock, then sees the committed
+   * row and bails — so only one can ever win the slot. Returns null on a lost
+   * race so the caller can surface a controlled conflict. Unrelated doctors and
+   * days use different lock keys and never block each other.
+   */
+  async reserve(input: CreateAppointmentInput): Promise<AppointmentRecord | null> {
+    const lockKey = `${input.doctorProfileId}:${input.scheduledDate.toISOString()}`;
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      const clash = await tx.appointment.findFirst({
+        where: {
+          doctorProfileId: input.doctorProfileId,
+          scheduledDate: input.scheduledDate,
+          startTime: input.startTime,
+          status: { not: 'CANCELLED' },
+        },
+      });
+      if (clash) return null;
+      return (await tx.appointment.create({
+        data: {
+          id: input.id ?? createId('apt'),
+          patientUserId: input.patientUserId,
+          doctorUserId: input.doctorUserId,
+          doctorProfileId: input.doctorProfileId,
+          scheduledDate: input.scheduledDate,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          status: input.status ?? 'REQUESTED',
+          reason: input.reason ?? null,
+          meetingUrl: input.meetingUrl ?? null,
+        },
+      })) as AppointmentRecord;
+    });
+  }
+
   async getById(id: string): Promise<AppointmentRecord | null> {
     return (await this.client.appointment.findUnique({ where: { id } })) as
       | AppointmentRecord

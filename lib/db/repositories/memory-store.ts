@@ -863,6 +863,43 @@ export class MemoryDataStore implements DataStore {
     return record;
   }
 
+  /**
+   * Atomic reservation for the in-memory dev store. The overlap check and the
+   * push run with no intervening `await`, so Node's single-threaded event loop
+   * cannot interleave a second booking between them. Returns null when the
+   * slot is already taken, mirroring the Prisma advisory-locked path.
+   */
+  async reserveAppointment(input: CreateAppointmentInput) {
+    this.load();
+    const target = input.scheduledDate.getTime();
+    const clash = this.state.appointments.find(
+      (row) =>
+        row.doctorProfileId === input.doctorProfileId &&
+        row.scheduledDate.getTime() === target &&
+        row.startTime === input.startTime &&
+        row.status !== 'CANCELLED',
+    );
+    if (clash) return null;
+    const timestamp = now();
+    const record: AppointmentRecord = {
+      id: input.id ?? createId('apt'),
+      patientUserId: input.patientUserId,
+      doctorUserId: input.doctorUserId,
+      doctorProfileId: input.doctorProfileId,
+      scheduledDate: input.scheduledDate,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      status: input.status ?? 'REQUESTED',
+      reason: input.reason ?? null,
+      meetingUrl: input.meetingUrl ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.state.appointments.push(record);
+    this.persist();
+    return record;
+  }
+
   async getAppointmentById(id: string) {
     this.load();
     return this.state.appointments.find((row) => row.id === id) ?? null;

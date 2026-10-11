@@ -326,6 +326,9 @@ export class PrismaDataStore implements DataStore {
   createAppointment(input: CreateAppointmentInput): Promise<AppointmentRecord> {
     return this.appointments.create(input);
   }
+  reserveAppointment(input: CreateAppointmentInput): Promise<AppointmentRecord | null> {
+    return this.appointments.reserve(input);
+  }
   getAppointmentById(id: string) {
     return this.appointments.getById(id);
   }

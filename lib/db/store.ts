@@ -182,6 +182,14 @@ export interface DataStore {
 
   // --- appointments ---------------------------------------------------------
   createAppointment(input: CreateAppointmentInput): Promise<AppointmentRecord>;
+  /**
+   * Atomic slot reservation: checks for an overlap and inserts in one
+   * non-interleaved step. Returns null when a concurrent booking already holds
+   * the slot, so callers can surface a controlled conflict. Prisma serialises
+   * per doctor+day with an advisory lock; the memory store relies on Node's
+   * single-threaded, await-free critical section.
+   */
+  reserveAppointment(input: CreateAppointmentInput): Promise<AppointmentRecord | null>;
   getAppointmentById(id: string): Promise<AppointmentRecord | null>;
   /** Newest first. */
   listAppointmentsByPatient(patientUserId: string): Promise<AppointmentRecord[]>;

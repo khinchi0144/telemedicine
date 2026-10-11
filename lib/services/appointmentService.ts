@@ -157,16 +157,6 @@ export async function bookAppointment(
     throw Errors.validation('That slot has already passed. Please pick a future time.');
   }
 
-  // Exact-slot recheck guards against a race with another booking.
-  const clash = await store.findAppointmentAt(
-    doctor.id,
-    scheduledDate,
-    input.startTime,
-  );
-  if (clash) {
-    throw Errors.conflict('That slot was just taken. Please pick another time.');
-  }
-
   const mine = await store.listAppointmentsByPatient(patientUserId);
   const patientClash = mine.some(
     (row) =>
@@ -178,8 +168,14 @@ export async function bookAppointment(
     throw Errors.conflict('You already have an appointment at that time.');
   }
 
+  // Atomic reservation: the doctor-slot overlap re-check and the insert run
+  // inside ONE Postgres transaction serialized per doctor+day via
+  // pg_advisory_xact_lock, so two concurrent bookings can never both win the
+  // same doctor slot. A lost race returns null → a controlled conflict,
+  // preserving the previous user-facing message. Unrelated doctors and days
+  // use different lock keys and never block each other.
   const id = createId('apt');
-  return store.createAppointment({
+  const reserved = await store.reserveAppointment({
     id,
     patientUserId,
     doctorUserId: doctor.userId,
@@ -193,6 +189,10 @@ export async function bookAppointment(
     // URL; the page itself guards on appointment membership, not role.
     meetingUrl: `/consultations/${id}`,
   });
+  if (!reserved) {
+    throw Errors.conflict('That slot was just taken. Please pick another time.');
+  }
+  return reserved;
 }
 
 /** Cancels one of the patient's own upcoming appointments. */

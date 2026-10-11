@@ -480,7 +480,7 @@ model Prescription {
   id            String             @id @default(cuid())
   patientUserId String
   doctorUserId  String
-  appointmentId String?
+  appointmentId String?  @unique
   diagnosis     String?
   notes         String?
   status        PrescriptionStatus @default(ACTIVE)

@@ -363,6 +363,9 @@ export class PrismaDataStore implements DataStore {
   getPrescriptionById(id: string) {
     return this.prescriptions.getById(id);
   }
+  getPrescriptionByAppointment(appointmentId: string) {
+    return this.prescriptions.getByAppointment(appointmentId);
+  }
   listPrescriptionsByPatient(patientUserId: string) {
     return this.prescriptions.listByPatient(patientUserId);
   }

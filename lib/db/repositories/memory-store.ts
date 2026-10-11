@@ -983,13 +983,26 @@ export class MemoryDataStore implements DataStore {
   // --- prescriptions --------------------------------------------------------
   async createPrescription(input: CreatePrescriptionInput): Promise<PrescriptionWithItems> {
     this.load();
+    const appointmentId = input.appointmentId ?? null;
+
+    // One prescription per appointment. The check and the push run with no
+    // `await` between them, so in Node's single-threaded event loop a second
+    // concurrent call cannot interleave here — this is atomic for the dev
+    // datastore. Mirrors the Postgres unique index used in production.
+    if (
+      appointmentId !== null &&
+      this.state.prescriptions.some((row) => row.appointmentId === appointmentId)
+    ) {
+      throw Errors.conflict('A prescription already exists for this appointment.');
+    }
+
     const timestamp = now();
     const id = createId('rx');
     const record: PrescriptionRecord = {
       id,
       patientUserId: input.patientUserId,
       doctorUserId: input.doctorUserId,
-      appointmentId: input.appointmentId ?? null,
+      appointmentId,
       diagnosis: input.diagnosis ?? null,
       notes: input.notes ?? null,
       status: input.status ?? 'ACTIVE',
@@ -1019,6 +1032,22 @@ export class MemoryDataStore implements DataStore {
       ...record,
       items: this.state.prescriptionItems.filter(
         (item) => item.prescriptionId === id,
+      ),
+    };
+  }
+
+  async getPrescriptionByAppointment(
+    appointmentId: string,
+  ): Promise<PrescriptionWithItems | null> {
+    this.load();
+    const record =
+      this.state.prescriptions.find((row) => row.appointmentId === appointmentId) ??
+      null;
+    if (!record) return null;
+    return {
+      ...record,
+      items: this.state.prescriptionItems.filter(
+        (item) => item.prescriptionId === record.id,
       ),
     };
   }

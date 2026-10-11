@@ -1,8 +1,10 @@
 import 'server-only';
 
-import type { AppointmentStatus, Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { AppointmentStatus, PrismaClient } from '@prisma/client';
 
 import { createId } from '@/lib/utils/crypto';
+import { Errors } from '@/lib/utils/errors';
 import type { DoctorDirectoryFilter, PharmacyDirectoryFilter } from '../../store';
 import type {
   AppointmentRecord,
@@ -232,31 +234,58 @@ export class PrescriptionRepository {
 
   /** Prescription + items written in one transaction so they cannot split. */
   async create(input: CreatePrescriptionInput): Promise<PrescriptionWithItems> {
-    return (await this.client.$transaction(async (tx) => {
-      const prescription = await tx.prescription.create({
-        data: {
-          id: createId('rx'),
-          patientUserId: input.patientUserId,
-          doctorUserId: input.doctorUserId,
-          appointmentId: input.appointmentId ?? null,
-          diagnosis: input.diagnosis ?? null,
-          notes: input.notes ?? null,
-          status: input.status ?? 'ACTIVE',
-          items: {
-            create: input.items.map((item) => ({
-              id: createId('rxi'),
-              medicineName: item.medicineName,
-              dosage: item.dosage ?? null,
-              frequency: item.frequency ?? null,
-              duration: item.duration ?? null,
-              instructions: item.instructions ?? null,
-            })),
+    try {
+      return (await this.client.$transaction(async (tx) => {
+        const prescription = await tx.prescription.create({
+          data: {
+            id: createId('rx'),
+            patientUserId: input.patientUserId,
+            doctorUserId: input.doctorUserId,
+            appointmentId: input.appointmentId ?? null,
+            diagnosis: input.diagnosis ?? null,
+            notes: input.notes ?? null,
+            status: input.status ?? 'ACTIVE',
+            items: {
+              create: input.items.map((item) => ({
+                id: createId('rxi'),
+                medicineName: item.medicineName,
+                dosage: item.dosage ?? null,
+                frequency: item.frequency ?? null,
+                duration: item.duration ?? null,
+                instructions: item.instructions ?? null,
+              })),
+            },
           },
-        },
-        include: { items: true },
-      });
-      return prescription as PrescriptionWithItems;
-    })) as PrescriptionWithItems;
+          include: { items: true },
+        });
+        return prescription as PrescriptionWithItems;
+      })) as PrescriptionWithItems;
+    } catch (error) {
+      // A concurrent request already inserted the prescription for this
+      // appointment: the unique index on appointmentId rejected our row. The
+      // whole transaction (items included) rolled back, so surface a clean
+      // CONFLICT instead of leaking a raw driver error.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw Errors.conflict(
+          'A prescription already exists for this appointment.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  async getByAppointment(appointmentId: string): Promise<PrescriptionWithItems | null> {
+    // findFirst (not findUnique) so this compiles and runs correctly even
+    // before the unique index migration is applied; once the index exists
+    // there is at most one row to return.
+    const row = await this.client.prescription.findFirst({
+      where: { appointmentId },
+      include: { items: true },
+    });
+    return row as PrescriptionWithItems | null;
   }
 
   async getById(id: string): Promise<PrescriptionWithItems | null> {

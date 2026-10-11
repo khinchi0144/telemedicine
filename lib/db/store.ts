@@ -216,6 +216,12 @@ export interface DataStore {
   // --- prescriptions --------------------------------------------------------
   createPrescription(input: CreatePrescriptionInput): Promise<PrescriptionWithItems>;
   getPrescriptionById(id: string): Promise<PrescriptionWithItems | null>;
+  /**
+   * The single prescription already written for an appointment, if any.
+   * Backed by a unique index on `appointmentId` (Postgres) / an atomic guard
+   * (memory store) so only one prescription can ever exist per appointment.
+   */
+  getPrescriptionByAppointment(appointmentId: string): Promise<PrescriptionWithItems | null>;
   /** Newest first, each with its medicine lines. */
   listPrescriptionsByPatient(patientUserId: string): Promise<PrescriptionWithItems[]>;
 

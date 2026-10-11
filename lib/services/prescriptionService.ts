@@ -43,6 +43,17 @@ export async function createDoctorPrescription(
     );
   }
 
+  // Fast, friendly guard for the common case: a sequential double-click or a
+  // retry after a lost response. Returns a controlled CONFLICT instead of
+  // creating a second prescription. The store's unique index on appointmentId
+  // is what makes this hold under true concurrency (two requests racing past
+  // this check) — there the loser's insert is rejected and translated to a
+  // CONFLICT too, so exactly one prescription ever exists per appointment.
+  const existing = await store.getPrescriptionByAppointment(appointment.id);
+  if (existing) {
+    throw Errors.conflict('A prescription already exists for this appointment.');
+  }
+
   return store.createPrescription({
     patientUserId: appointment.patientUserId,
     doctorUserId,

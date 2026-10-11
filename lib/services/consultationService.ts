@@ -33,6 +33,55 @@ export interface SignalPollResult {
   now: string;
 }
 
+/**
+ * Minutes before the scheduled start that the room opens. Both sides can
+ * connect and check their camera/mic a little early; once the appointment's
+ * end time passes the room no longer accepts new signalling. The codebase had
+ * no prior join-window policy, so this is the chosen, easily tunable rule.
+ */
+const JOIN_GRACE_MINUTES = 10;
+
+/**
+ * Parses an "HH:mm" wall-clock value into minutes-since-midnight, or NaN when
+ * malformed. Uses the same convention as the booking/slot code: `scheduledDate`
+ * is a UTC-midnight instant and the times are minute offsets into that instant.
+ */
+function minutesOf(time: string): number {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return NaN;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return NaN;
+  return hours * 60 + minutes;
+}
+
+/**
+ * True only inside the appointment's join window: from `JOIN_GRACE_MINUTES`
+ * before the start through the scheduled end time (inclusive at both ends).
+ *
+ * Computed in the same UTC frame as slot generation, so the window lines up
+ * with the times the patient and doctor actually booked. Malformed or missing
+ * timing can never grant access — it returns false and the room stays closed.
+ */
+export function isWithinJoinWindow(
+  appointment: AppointmentRecord,
+  now: number = Date.now(),
+): boolean {
+  const dayStart = appointment.scheduledDate.getTime();
+  const startMinutes = minutesOf(appointment.startTime);
+  const endMinutes = minutesOf(appointment.endTime);
+  if (
+    Number.isNaN(dayStart) ||
+    Number.isNaN(startMinutes) ||
+    Number.isNaN(endMinutes)
+  ) {
+    return false;
+  }
+  const opensAt = dayStart + startMinutes * 60_000 - JOIN_GRACE_MINUTES * 60_000;
+  const closesAt = dayStart + endMinutes * 60_000;
+  return now >= opensAt && now <= closesAt;
+}
+
 async function loadRoom(
   userId: string,
   appointmentId: string,
@@ -45,6 +94,15 @@ async function loadRoom(
     // Same 404 for "does not exist" and "not yours" so room ids cannot be
     // probed for existence.
     throw Errors.notFound('That consultation room could not be found.');
+  }
+  // Timing gate (server side): a member may only open the room within the
+  // appointment's time window, not merely on the same calendar day. Runs after
+  // the membership check so non-members still get an indistinguishable 404 and
+  // cannot learn whether a room exists.
+  if (!isWithinJoinWindow(appointment)) {
+    throw Errors.forbidden(
+      'This room is only open shortly before and during the scheduled appointment time.',
+    );
   }
   return { appointment, isInitiator: Boolean(isPatient) };
 }

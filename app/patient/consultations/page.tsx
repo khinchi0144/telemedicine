@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import { requireRoleLayout } from '@/lib/auth/role-guard';
 import { listPatientAppointments } from '@/lib/services/appointmentService';
+import { isWithinJoinWindow } from '@/lib/services/consultationService';
 import { formatDate } from '@/lib/utils/format';
 
 export const metadata: Metadata = {
@@ -29,7 +30,7 @@ export default async function ConsultationsPage() {
     (item) =>
       item.appointment.status === 'CONFIRMED' &&
       item.appointment.meetingUrl !== null &&
-      item.appointment.scheduledDate.getTime() + 24 * 60 * 60_000 > Date.now(),
+      isWithinJoinWindow(item.appointment),
   );
 
   return (

@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/dashboard/EmptyState';
 import { AppointmentStatusBadge } from '@/components/patient/care/StatusBadge';
 import { requireRoleLayout } from '@/lib/auth/role-guard';
 import { listDoctorAppointments } from '@/lib/services/doctorAppointmentService';
+import { isWithinJoinWindow } from '@/lib/services/consultationService';
 import { isAppError } from '@/lib/utils/errors';
 import { formatDate, humanizeStatus } from '@/lib/utils/format';
 import type { AppointmentRecord } from '@/lib/db/types';
@@ -19,14 +20,15 @@ export const metadata: Metadata = {
 
 /**
  * A room can be joined when the booking is confirmed, carries a room link, and
- * its scheduled day has not fully passed — the same eligibility rule the
- * patient lobby uses, so both sides agree on when a room is open.
+ * the current time is inside the appointment's join window — the same rule the
+ * patient lobby uses and the server enforces, so both sides agree on when a
+ * room is open.
  */
 function isJoinable(appointment: AppointmentRecord): boolean {
   return (
     appointment.status === 'CONFIRMED' &&
     appointment.meetingUrl !== null &&
-    appointment.scheduledDate.getTime() + 24 * 60 * 60_000 > Date.now()
+    isWithinJoinWindow(appointment)
   );
 }
 
